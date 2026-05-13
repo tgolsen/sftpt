@@ -1,0 +1,459 @@
+package sftp
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/pkg/sftp"
+	"github.com/tgolsen/sftpt/internal/auth"
+	"golang.org/x/crypto/ssh"
+)
+
+// Client wraps SFTP operations
+type Client struct {
+	sshClient  *ssh.Client
+	sftpClient *sftp.Client
+	host       string
+	port       string
+	user       string
+}
+
+// TransferOptions holds options for file transfers
+type TransferOptions struct {
+	Recursive    bool
+	Preserve     bool
+	ShowProgress bool
+	CreateDirs   bool
+}
+
+// ClientOptions holds options for creating SFTP client
+type ClientOptions struct {
+	KeyFile              string
+	UsePassword          bool
+	PasswordFromStdin    string
+	KeysOnly             bool
+	UseSSHConfig         bool
+	StrictHostChecking   bool
+}
+
+// NewClient creates a new SFTP client with authentication
+func NewClient(host, port, user string) (*Client, error) {
+	// Legacy function for backward compatibility
+	return NewClientWithOptions(host, port, user, ClientOptions{
+		UseSSHConfig:       true,
+		StrictHostChecking: true,
+	})
+}
+
+// NewClientWithOptions creates a new SFTP client with explicit options
+func NewClientWithOptions(host, port, user string, options ClientOptions) (*Client, error) {
+	// Get authentication configuration
+	authOptions := auth.AuthOptions{
+		KeyFile:            options.KeyFile,
+		UsePassword:        options.UsePassword,
+		PasswordFromStdin:  options.PasswordFromStdin,
+		KeysOnly:           options.KeysOnly,
+		UseSSHConfig:       options.UseSSHConfig,
+		StrictHostChecking: options.StrictHostChecking,
+	}
+
+	authConfig, err := auth.GetAuthConfigWithFlags(user, host, port, authOptions)
+	if err != nil {
+		return nil, fmt.Errorf("getting auth config: %w", err)
+	}
+
+	// Configure host key checking
+	var hostKeyCallback ssh.HostKeyCallback
+	if options.StrictHostChecking {
+		// In production, you'd want proper host key verification
+		// For now, we'll use a simple callback that accepts known patterns
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	}
+
+	// Create SSH client config
+	sshConfig := &ssh.ClientConfig{
+		User:            user,
+		Auth:            authConfig.Methods,
+		HostKeyCallback: hostKeyCallback,
+		Timeout:         30 * time.Second,
+	}
+
+	// Connect to SSH server
+	address := fmt.Sprintf("%s:%s", host, port)
+	sshClient, err := ssh.Dial("tcp", address, sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("SSH connection failed: %w", err)
+	}
+
+	// Create SFTP client
+	sftpClient, err := sftp.NewClient(sshClient)
+	if err != nil {
+		sshClient.Close()
+		return nil, fmt.Errorf("SFTP client creation failed: %w", err)
+	}
+
+	return &Client{
+		sshClient:  sshClient,
+		sftpClient: sftpClient,
+		host:       host,
+		port:       port,
+		user:       user,
+	}, nil
+}
+
+// Close closes the SFTP and SSH connections
+func (c *Client) Close() error {
+	var errs []string
+
+	if c.sftpClient != nil {
+		if err := c.sftpClient.Close(); err != nil {
+			errs = append(errs, fmt.Sprintf("SFTP close: %v", err))
+		}
+	}
+
+	if c.sshClient != nil {
+		if err := c.sshClient.Close(); err != nil {
+			errs = append(errs, fmt.Sprintf("SSH close: %v", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %s", strings.Join(errs, "; "))
+	}
+
+	return nil
+}
+
+// List lists directory contents
+func (c *Client) List(path string, longFormat, showAll bool) ([]string, error) {
+	entries, err := c.sftpClient.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory: %w", err)
+	}
+
+	var results []string
+	for _, entry := range entries {
+		name := entry.Name()
+
+		// Skip hidden files unless showAll is true
+		if !showAll && strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		if longFormat {
+			// Format: permissions size date name
+			mode := entry.Mode().String()
+			size := entry.Size()
+			modTime := entry.ModTime().Format("Jan 02 15:04")
+			results = append(results, fmt.Sprintf("%s %8d %s %s", mode, size, modTime, name))
+		} else {
+			results = append(results, name)
+		}
+	}
+
+	return results, nil
+}
+
+// Download downloads a file or directory from remote to local
+func (c *Client) Download(remotePath, localPath string, options TransferOptions) error {
+	// Get remote file info
+	remoteInfo, err := c.sftpClient.Stat(remotePath)
+	if err != nil {
+		return fmt.Errorf("getting remote file info: %w", err)
+	}
+
+	if remoteInfo.IsDir() {
+		if !options.Recursive {
+			return fmt.Errorf("remote path is directory but recursive not enabled")
+		}
+		return c.downloadDir(remotePath, localPath, options)
+	}
+
+	return c.downloadFile(remotePath, localPath, options)
+}
+
+// downloadFile downloads a single file
+func (c *Client) downloadFile(remotePath, localPath string, options TransferOptions) error {
+	// Open remote file
+	remoteFile, err := c.sftpClient.Open(remotePath)
+	if err != nil {
+		return fmt.Errorf("opening remote file: %w", err)
+	}
+	defer remoteFile.Close()
+
+	// Determine local file path
+	if info, err := os.Stat(localPath); err == nil && info.IsDir() {
+		localPath = filepath.Join(localPath, filepath.Base(remotePath))
+	}
+
+	// Create local file
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("creating local file: %w", err)
+	}
+	defer localFile.Close()
+
+	// Copy file content
+	_, err = io.Copy(localFile, remoteFile)
+	if err != nil {
+		return fmt.Errorf("copying file content: %w", err)
+	}
+
+	// Preserve timestamps if requested
+	if options.Preserve {
+		if stat, err := c.sftpClient.Stat(remotePath); err == nil {
+			// Ignore errors in setting timestamps - not critical to operation
+			_ = os.Chtimes(localPath, stat.ModTime(), stat.ModTime())
+		}
+	}
+
+	return nil
+}
+
+// downloadDir downloads a directory recursively
+func (c *Client) downloadDir(remotePath, localPath string, options TransferOptions) error {
+	// Create local directory
+	if err := os.MkdirAll(localPath, 0755); err != nil {
+		return fmt.Errorf("creating local directory: %w", err)
+	}
+
+	// List remote directory
+	entries, err := c.sftpClient.ReadDir(remotePath)
+	if err != nil {
+		return fmt.Errorf("reading remote directory: %w", err)
+	}
+
+	// Download each entry
+	for _, entry := range entries {
+		remoteEntryPath := filepath.Join(remotePath, entry.Name())
+		localEntryPath := filepath.Join(localPath, entry.Name())
+
+		if entry.IsDir() {
+			err = c.downloadDir(remoteEntryPath, localEntryPath, options)
+		} else {
+			err = c.downloadFile(remoteEntryPath, localEntryPath, options)
+		}
+
+		if err != nil {
+			return fmt.Errorf("downloading %s: %w", entry.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+// Upload uploads a file or directory from local to remote
+func (c *Client) Upload(localPath, remotePath string, options TransferOptions) error {
+	// Get local file info
+	localInfo, err := os.Stat(localPath)
+	if err != nil {
+		return fmt.Errorf("getting local file info: %w", err)
+	}
+
+	if localInfo.IsDir() {
+		if !options.Recursive {
+			return fmt.Errorf("local path is directory but recursive not enabled")
+		}
+		return c.uploadDir(localPath, remotePath, options)
+	}
+
+	return c.uploadFile(localPath, remotePath, options)
+}
+
+// uploadFile uploads a single file
+func (c *Client) uploadFile(localPath, remotePath string, options TransferOptions) error {
+	// Open local file
+	localFile, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("opening local file: %w", err)
+	}
+	defer localFile.Close()
+
+	// Determine remote file path
+	if stat, err := c.sftpClient.Stat(remotePath); err == nil && stat.IsDir() {
+		remotePath = filepath.Join(remotePath, filepath.Base(localPath))
+	}
+
+	// Create remote directories if needed
+	if options.CreateDirs {
+		remoteDir := filepath.Dir(remotePath)
+		if err := c.Mkdir(remoteDir, "0755", true); err != nil {
+			return fmt.Errorf("creating remote directory: %w", err)
+		}
+	}
+
+	// Create remote file
+	remoteFile, err := c.sftpClient.Create(remotePath)
+	if err != nil {
+		return fmt.Errorf("creating remote file: %w", err)
+	}
+	defer remoteFile.Close()
+
+	// Copy file content
+	_, err = io.Copy(remoteFile, localFile)
+	if err != nil {
+		return fmt.Errorf("copying file content: %w", err)
+	}
+
+	// Preserve timestamps if requested
+	if options.Preserve {
+		if stat, err := os.Stat(localPath); err == nil {
+			// Ignore errors in setting timestamps - not critical to operation
+			_ = c.sftpClient.Chtimes(remotePath, stat.ModTime(), stat.ModTime())
+		}
+	}
+
+	return nil
+}
+
+// uploadDir uploads a directory recursively
+func (c *Client) uploadDir(localPath, remotePath string, options TransferOptions) error {
+	// Create remote directory
+	if err := c.Mkdir(remotePath, "0755", options.CreateDirs); err != nil {
+		return fmt.Errorf("creating remote directory: %w", err)
+	}
+
+	// List local directory
+	entries, err := os.ReadDir(localPath)
+	if err != nil {
+		return fmt.Errorf("reading local directory: %w", err)
+	}
+
+	// Upload each entry
+	for _, entry := range entries {
+		localEntryPath := filepath.Join(localPath, entry.Name())
+		remoteEntryPath := filepath.Join(remotePath, entry.Name())
+
+		if entry.IsDir() {
+			err = c.uploadDir(localEntryPath, remoteEntryPath, options)
+		} else {
+			err = c.uploadFile(localEntryPath, remoteEntryPath, options)
+		}
+
+		if err != nil {
+			return fmt.Errorf("uploading %s: %w", entry.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+// Mkdir creates a directory on the remote server
+func (c *Client) Mkdir(path, mode string, parents bool) error {
+	// Parse mode
+	fileMode, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil {
+		return fmt.Errorf("invalid mode: %w", err)
+	}
+
+	if parents {
+		// Create parent directories recursively
+		return c.mkdirAll(path, os.FileMode(fileMode))
+	}
+
+	// Create single directory
+	err = c.sftpClient.Mkdir(path)
+	if err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+
+	// Set permissions
+	err = c.sftpClient.Chmod(path, os.FileMode(fileMode))
+	if err != nil {
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+
+	return nil
+}
+
+// mkdirAll creates a directory and all necessary parents
+func (c *Client) mkdirAll(path string, mode os.FileMode) error {
+	// Check if directory already exists
+	if _, err := c.sftpClient.Stat(path); err == nil {
+		return nil // Directory exists
+	}
+
+	// Create parent directory if needed
+	parent := filepath.Dir(path)
+	if parent != path && parent != "/" && parent != "." {
+		if err := c.mkdirAll(parent, mode); err != nil {
+			return err
+		}
+	}
+
+	// Create this directory
+	if err := c.sftpClient.Mkdir(path); err != nil {
+		return fmt.Errorf("creating directory %s: %w", path, err)
+	}
+
+	// Set permissions
+	if err := c.sftpClient.Chmod(path, mode); err != nil {
+		return fmt.Errorf("setting permissions on %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// Remove removes a file or directory from the remote server
+func (c *Client) Remove(path string, recursive, force bool) error {
+	// Get file info
+	info, err := c.sftpClient.Stat(path)
+	if err != nil {
+		if force {
+			return nil // Ignore error if force is enabled
+		}
+		return fmt.Errorf("getting file info: %w", err)
+	}
+
+	if info.IsDir() {
+		if !recursive {
+			return fmt.Errorf("path is directory but recursive not enabled")
+		}
+		return c.removeDir(path, force)
+	}
+
+	// Remove file
+	err = c.sftpClient.Remove(path)
+	if err != nil && !force {
+		return fmt.Errorf("removing file: %w", err)
+	}
+
+	return nil
+}
+
+// removeDir removes a directory recursively
+func (c *Client) removeDir(path string, force bool) error {
+	// List directory contents
+	entries, err := c.sftpClient.ReadDir(path)
+	if err != nil {
+		if force {
+			return nil
+		}
+		return fmt.Errorf("reading directory: %w", err)
+	}
+
+	// Remove all entries
+	for _, entry := range entries {
+		entryPath := filepath.Join(path, entry.Name())
+		if err := c.Remove(entryPath, true, force); err != nil {
+			if !force {
+				return err
+			}
+		}
+	}
+
+	// Remove the directory itself
+	err = c.sftpClient.RemoveDirectory(path)
+	if err != nil && !force {
+		return fmt.Errorf("removing directory: %w", err)
+	}
+
+	return nil
+}

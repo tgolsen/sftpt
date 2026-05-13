@@ -1,0 +1,5 @@
+Hello from SFTP test server!
+This is a sample file for testing the sftpt CLI.
+
+Created: $(date)
+Purpose: Testing file operations

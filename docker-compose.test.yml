@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  test-sftp:
+    image: atmoz/sftp:latest
+    ports:
+      - "2222:22"
+    volumes:
+      - ./test/testdata:/home/testuser/upload
+    command: testuser:password:1000:1000:upload
+    container_name: sftpt-test-server

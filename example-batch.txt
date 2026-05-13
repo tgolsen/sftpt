@@ -1,0 +1,13 @@
+# Example sftpt batch script
+# This demonstrates batch operations for automation
+
+# List root directory to see what's available
+list luminate-sftp:/
+
+# List contents of luminate directory
+list luminate-sftp:/luminate
+
+# Could add more operations like:
+# get luminate-sftp:/luminate/some-file.csv ./downloads/
+# mkdir luminate-sftp:/luminate/processed/
+# put ./local-report.txt luminate-sftp:/luminate/reports/
