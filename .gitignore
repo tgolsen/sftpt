@@ -20,7 +20,7 @@ go.work
 # Build output
 /dist/
 /build/
-sftpt
+/sftpt
 
 # Configuration files (may contain credentials)
 .env*
