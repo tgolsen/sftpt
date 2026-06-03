@@ -2,6 +2,14 @@
 
 A simple command-line SFTP utility for Mac, designed for easy integration with shell scripts.
 
+## Quick Start
+
+```bash
+git pull
+make build
+./build/sftpt list user@host:/path --password-stdin <password>
+```
+
 ## Purpose
 
 `sftpt` provides a streamlined interface to SFTP operations with focus on:
