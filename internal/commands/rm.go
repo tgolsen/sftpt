@@ -13,12 +13,13 @@ func NewRmCommand() *cobra.Command {
 		Use:   "rm [user@]host[:port]:path",
 		Short: "Remove remote files or directories",
 		Long: `Remove files or directories on the remote server via SFTP.
+Supports glob patterns (quote them to prevent local shell expansion).
 
 The connection string format is: [user@]host[:port]:path
 
 Examples:
   sftpt rm user@server.com:/remote/file.txt
-  sftpt rm server.com:/var/log/old.log
+  sftpt rm "server.com:/var/log/*.tmp"
   sftpt rm -r user@server.com:2222:/home/user/olddir/`,
 		Args: cobra.ExactArgs(1),
 		RunE: runRmCommand,
@@ -54,6 +55,32 @@ func runRmCommand(cmd *cobra.Command, args []string) error {
 
 	PrintVerbose(cmd, "Removing: %s\n", connInfo.Path)
 
+	// Handle remote glob patterns
+	if containsGlob(connInfo.Path) {
+		matches, err := client.Glob(connInfo.Path)
+		if err != nil {
+			return fmt.Errorf("expanding glob %s: %w", connInfo.Path, err)
+		}
+		if len(matches) == 0 {
+			if force {
+				return nil
+			}
+			return fmt.Errorf("no files matching: %s", connInfo.Path)
+		}
+		PrintVerbose(cmd, "Glob %s matched %d files\n", connInfo.Path, len(matches))
+		for _, match := range matches {
+			PrintVerbose(cmd, "Removing %s\n", match)
+			if err := client.Remove(match, false, force); err != nil {
+				if !force {
+					return fmt.Errorf("removing %s: %w", match, err)
+				}
+				PrintVerbose(cmd, "Warning: %v\n", err)
+			}
+		}
+		PrintOutput(cmd, "Removed %d files\n", len(matches))
+		return nil
+	}
+
 	// Remove file/directory
 	err = client.Remove(connInfo.Path, recursive, force)
 	if err != nil {
@@ -64,7 +91,6 @@ func runRmCommand(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Clean output for scripts
 	PrintOutput(cmd, "Removed: %s\n", connInfo.Path)
 
 	return nil

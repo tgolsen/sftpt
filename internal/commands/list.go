@@ -14,12 +14,13 @@ func NewListCommand() *cobra.Command {
 		Use:   "list [user@]host[:port]:path",
 		Short: "List remote directory contents",
 		Long: `List the contents of a remote directory via SFTP.
+Supports glob patterns (quote them to prevent local shell expansion).
 
 The connection string format is: [user@]host[:port]:path
 
 Examples:
   sftpt list user@server.com:/home/user/
-  sftpt list server.com:/var/log/
+  sftpt list "server.com:/var/log/*.log"
   sftpt list user@server.com:2222:/custom/path/`,
 		Args: cobra.ExactArgs(1),
 		RunE: runListCommand,
@@ -68,13 +69,40 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 	longFormat, _ := cmd.Flags().GetBool("long")
 	showAll, _ := cmd.Flags().GetBool("all")
 
+	// Handle glob patterns
+	if containsGlob(connInfo.Path) {
+		matches, err := client.Glob(connInfo.Path)
+		if err != nil {
+			return fmt.Errorf("expanding glob %s: %w", connInfo.Path, err)
+		}
+		if len(matches) == 0 {
+			return fmt.Errorf("no files matching: %s", connInfo.Path)
+		}
+		PrintVerbose(cmd, "Glob %s matched %d files\n", connInfo.Path, len(matches))
+		for _, match := range matches {
+			if longFormat {
+				fi, statErr := client.StatFile(match)
+				if statErr != nil {
+					PrintOutput(cmd, "%-10s %8s %s %s\n", "????????", "?", "??? ?? ????", match)
+					continue
+				}
+				mode := fi.Mode().String()
+				size := fi.Size()
+				modTime := fi.ModTime().Format("Jan 02 15:04")
+				PrintOutput(cmd, "%s %8d %s %s\n", mode, size, modTime, match)
+			} else {
+				PrintOutput(cmd, "%s\n", match)
+			}
+		}
+		return nil
+	}
+
 	// List directory contents
 	entries, err := client.List(connInfo.Path, longFormat, showAll)
 	if err != nil {
 		return fmt.Errorf("listing directory: %w", err)
 	}
 
-	// Print results (clean output for script consumption)
 	for _, entry := range entries {
 		PrintOutput(cmd, "%s\n", entry)
 	}

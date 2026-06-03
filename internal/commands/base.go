@@ -11,6 +11,11 @@ import (
 	"github.com/tgolsen/sftpt/internal/sftp"
 )
 
+// containsGlob returns true if the path contains glob metacharacters.
+func containsGlob(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
 // ConnectionInfo holds parsed connection details
 type ConnectionInfo struct {
 	User string

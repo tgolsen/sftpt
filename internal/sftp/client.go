@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/sftp"
 	"github.com/tgolsen/sftpt/internal/auth"
+	"github.com/tgolsen/sftpt/internal/progress"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -131,6 +132,20 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Glob returns the names of all files matching pattern on the remote server.
+func (c *Client) Glob(pattern string) ([]string, error) {
+	matches, err := c.sftpClient.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("expanding glob pattern: %w", err)
+	}
+	return matches, nil
+}
+
+// StatFile returns file info for a remote path.
+func (c *Client) StatFile(path string) (os.FileInfo, error) {
+	return c.sftpClient.Stat(path)
+}
+
 // List lists directory contents
 func (c *Client) List(path string, longFormat, showAll bool) ([]string, error) {
 	entries, err := c.sftpClient.ReadDir(path)
@@ -200,8 +215,18 @@ func (c *Client) downloadFile(remotePath, localPath string, options TransferOpti
 	}
 	defer localFile.Close()
 
-	// Copy file content
-	_, err = io.Copy(localFile, remoteFile)
+	// Copy file content (with optional progress bar)
+	var fileSize int64
+	if options.ShowProgress {
+		if fi, err := remoteFile.Stat(); err == nil {
+			fileSize = fi.Size()
+		}
+		pw := progress.NewWriter(localFile, fileSize, filepath.Base(remotePath))
+		_, err = io.Copy(pw, remoteFile)
+		pw.Done()
+	} else {
+		_, err = io.Copy(localFile, remoteFile)
+	}
 	if err != nil {
 		return fmt.Errorf("copying file content: %w", err)
 	}
@@ -296,8 +321,18 @@ func (c *Client) uploadFile(localPath, remotePath string, options TransferOption
 	}
 	defer remoteFile.Close()
 
-	// Copy file content
-	_, err = io.Copy(remoteFile, localFile)
+	// Copy file content (with optional progress bar)
+	var fileSize int64
+	if options.ShowProgress {
+		if fi, err := localFile.Stat(); err == nil {
+			fileSize = fi.Size()
+		}
+		pr := progress.NewReader(localFile, fileSize, filepath.Base(localPath))
+		_, err = io.Copy(remoteFile, pr)
+		pr.Done()
+	} else {
+		_, err = io.Copy(remoteFile, localFile)
+	}
 	if err != nil {
 		return fmt.Errorf("copying file content: %w", err)
 	}

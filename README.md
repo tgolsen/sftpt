@@ -145,13 +145,13 @@ cp .env.example .env
 
 ## Planned Features
 
-- [ ] Basic SFTP operations (get, put, list, mkdir, rm)
-- [ ] Batch operations and wildcard support
-- [ ] Progress indicators for large transfers
+- [x] Basic SFTP operations (get, put, list, mkdir, rm)
+- [x] Batch operations and wildcard support
+- [x] Progress indicators for large transfers
 - [ ] Resume interrupted transfers
 - [ ] Configuration file support
-- [ ] SSH key and password authentication
-- [ ] Verbose and quiet modes for different script needs
+- [x] SSH key and password authentication
+- [x] Verbose and quiet modes for different script needs
 - [ ] Mac-specific integrations (Keychain, file notifications)
 
 ## Contributing
