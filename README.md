@@ -5,9 +5,14 @@ A simple command-line SFTP utility for Mac, designed for easy integration with s
 ## Quick Start
 
 ```bash
-git pull
-make build
-./build/sftpt list user@host:/path --password-stdin <password>
+# Install directly with Go
+go install github.com/tgolsen/sftpt/cmd/sftpt@latest
+
+# Or clone and build
+git clone https://github.com/tgolsen/sftpt.git && cd sftpt && make build
+
+# Run a command
+sftpt list user@host:/path --password-stdin <password>
 ```
 
 ## Purpose
