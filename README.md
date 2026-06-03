@@ -6,7 +6,7 @@ A simple command-line SFTP utility for Mac, designed for easy integration with s
 
 ```bash
 go install github.com/tgolsen/sftpt/cmd/sftpt@latest
-sftpt list user@host:/path --password-stdin <password>
+sftpt list myserver:/var/log
 ```
 
 ## Purpose
