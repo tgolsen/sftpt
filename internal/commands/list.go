@@ -2,11 +2,18 @@ package commands
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tgolsen/sftpt/internal/sftp"
 )
+
+type matchEntry struct {
+	path string
+	fi   os.FileInfo
+}
 
 // NewListCommand creates the list command
 func NewListCommand() *cobra.Command {
@@ -30,6 +37,7 @@ Examples:
 	cmd.Flags().BoolP("long", "l", false, "Long format (permissions, size, date)")
 	cmd.Flags().BoolP("all", "a", false, "Include hidden files")
 	cmd.Flags().Bool("human-readable", false, "Human-readable sizes (e.g. 1.2K, 4.5M)")
+	cmd.Flags().String("sort", "", "Sort by: time, size, name (default name order)")
 
 	return cmd
 }
@@ -70,11 +78,19 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 	longFormat, _ := cmd.Flags().GetBool("long")
 	showAll, _ := cmd.Flags().GetBool("all")
 	humanReadable, _ := cmd.Flags().GetBool("human-readable")
+	sortBy, _ := cmd.Flags().GetString("sort")
+
+	switch sortBy {
+	case "", "name", "time", "size":
+	default:
+		return fmt.Errorf("invalid --sort value: %q (use time, size, or name)", sortBy)
+	}
 
 	listOpts := sftp.ListOptions{
 		LongFormat:    longFormat,
 		ShowAll:       showAll,
 		HumanReadable: humanReadable,
+		Sort:          sortBy,
 	}
 
 	// Handle glob patterns
@@ -87,16 +103,22 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no files matching: %s", connInfo.Path)
 		}
 		PrintVerbose(cmd, "Glob %s matched %d files\n", connInfo.Path, len(matches))
+
+		var entries []matchEntry
 		for _, match := range matches {
-			if longFormat {
-				fi, statErr := client.StatFile(match)
-				if statErr != nil {
-					PrintOutput(cmd, "%s\n", match)
-					continue
-				}
-				PrintOutput(cmd, "%s\n", sftp.FormatEntry(fi, match, listOpts))
+			fi, _ := client.StatFile(match)
+			entries = append(entries, matchEntry{path: match, fi: fi})
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return sortMatchEntries(entries[i], entries[j], sortBy)
+		})
+
+		for _, e := range entries {
+			if longFormat && e.fi != nil {
+				PrintOutput(cmd, "%s\n", sftp.FormatEntry(e.fi, e.path, listOpts))
 			} else {
-				PrintOutput(cmd, "%s\n", match)
+				PrintOutput(cmd, "%s\n", e.path)
 			}
 		}
 		return nil
@@ -113,4 +135,33 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func sortMatchEntries(a, b matchEntry, sortBy string) bool {
+	switch sortBy {
+	case "time":
+		if a.fi == nil && b.fi == nil {
+			return a.path < b.path
+		}
+		if a.fi == nil {
+			return false
+		}
+		if b.fi == nil {
+			return true
+		}
+		return a.fi.ModTime().After(b.fi.ModTime())
+	case "size":
+		if a.fi == nil && b.fi == nil {
+			return a.path < b.path
+		}
+		if a.fi == nil {
+			return false
+		}
+		if b.fi == nil {
+			return true
+		}
+		return a.fi.Size() > b.fi.Size()
+	default:
+		return a.path < b.path
+	}
 }

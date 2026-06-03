@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -151,6 +152,7 @@ type ListOptions struct {
 	LongFormat    bool
 	ShowAll       bool
 	HumanReadable bool
+	Sort          string // "time", "size", "name", or "" (default name order)
 }
 
 // List lists directory contents
@@ -159,6 +161,8 @@ func (c *Client) List(path string, opts ListOptions) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading directory: %w", err)
 	}
+
+	sortEntries(entries, opts)
 
 	var results []string
 	for _, entry := range entries {
@@ -176,6 +180,23 @@ func (c *Client) List(path string, opts ListOptions) ([]string, error) {
 	}
 
 	return results, nil
+}
+
+func sortEntries(entries []os.FileInfo, opts ListOptions) {
+	switch opts.Sort {
+	case "time":
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].ModTime().After(entries[j].ModTime())
+		})
+	case "size":
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Size() > entries[j].Size()
+		})
+	default: // "name" or ""
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+	}
 }
 
 // FormatEntry formats a single file entry for display.
