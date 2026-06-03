@@ -21,26 +21,38 @@ sftpt list myserver:/var/log
 ## Installation
 
 ```bash
-# Installation method TBD (when built)
-# Options: brew install, direct binary download, or build from source
+go install github.com/tgolsen/sftpt/cmd/sftpt@latest
 ```
+
+Requires Go 1.26+. The binary installs to `$GOPATH/bin` (typically `~/go/bin`).
 
 ## Usage
 
 ### Basic Commands
 
 ```bash
-# Connect and list remote directory
-sftpt list user@host:/remote/path
+# List remote directory
+sftpt list myserver:/remote/path
+sftpt list myserver:/remote/path -l --human-readable --sort time
 
-# Download file
-sftpt get user@host:/remote/file.txt ./local/path/
+# Download files (supports globs)
+sftpt get myserver:/remote/file.txt ./local/path/
+sftpt get "myserver:/var/log/*.log" ./logs/
 
-# Upload file
-sftpt put ./local/file.txt user@host:/remote/path/
+# Upload files (shell expands local globs)
+sftpt put ./local/file.txt myserver:/remote/path/
+sftpt put *.log myserver:/remote/path/
 
-# Sync directory
-sftpt sync ./local/dir/ user@host:/remote/dir/
+# Create directory
+sftpt mkdir myserver:/remote/newdir/
+
+# Remove files (supports globs)
+sftpt rm myserver:/remote/oldfile.txt
+sftpt rm "myserver:/tmp/*.bak"
+
+# Batch commands from file or inline
+sftpt script --file deploy.txt
+sftpt script --inline "list myserver:/logs/; get myserver:/logs/app.log ./"
 ```
 
 ### Shell Script Examples
@@ -84,64 +96,56 @@ done
 ## Authentication
 
 ```bash
-# SSH key authentication (recommended for scripts)
-sftpt get user@host:/file.txt --key ~/.ssh/id_rsa
+# SSH config resolution (automatic — no flags needed)
+sftpt list myserver:/path
 
-# Password authentication (interactive)
-sftpt get user@host:/file.txt --password
+# SSH key authentication (specific key)
+sftpt get myserver:/file.txt --key ~/.ssh/id_rsa
 
-# Configuration file support
-sftpt get user@host:/file.txt --config ~/.sftpt/config
+# Password authentication (interactive prompt)
+sftpt get myserver:/file.txt --password
+
+# Password from stdin (for scripts)
+echo "$PASSWORD" | sftpt get myserver:/file.txt --password-stdin "$(cat)"
 ```
 
 ## Development
 
 ### Prerequisites
 
-- macOS development environment
-- [Language-specific requirements TBD]
+- Go 1.26+
+- Docker (for integration tests with test SFTP server)
 
 ### Setup
 
 ```bash
-# Clone repository
-git clone [repository-url]
+git clone https://github.com/tgolsen/sftpt.git
 cd sftpt
-
-# Copy environment template
-cp .env.example .env
-
-# Install development dependencies
-# [Command TBD based on chosen language]
 ```
 
 ### Development Commands
 
 ```bash
-# Build CLI tool
-# [Build command TBD]
-
-# Run tests
-# [Test command TBD]
-
-# Install locally for testing
-# [Install command TBD]
-
-# Run linting
-# [Lint command TBD]
+make build       # Build binary
+make test        # Run unit tests
+make coverage    # Run tests with coverage report
+make lint        # Run golangci-lint
+make format      # Format code
+make dev         # Quick build for development
+make quality     # Run all checks (deps, format, lint, security, test)
 ```
 
 ### Testing SFTP Functionality
 
 ```bash
-# Test with local SFTP server (for development)
-# Set up test SFTP server in .env:
-# TEST_SFTP_HOST=localhost
-# TEST_SFTP_USER=testuser
-# TEST_SFTP_PATH=/tmp/sftpt-test
+# Start test SFTP server
+docker compose -f docker-compose.test.yml up -d
 
-# Run integration tests
-# [Integration test command TBD]
+# Run with test server
+./build/sftpt list testuser@localhost:2222:/upload --password-stdin password
+
+# Stop test server
+docker rm -f sftpt-test-server
 ```
 
 ## CLI Design Principles
@@ -188,12 +192,16 @@ git commit -m "feat: add command"
 
 ```
 sftpt/
-├── .agent/                 # Development guidelines and process
-├── src/                    # Source code (TBD)
-├── tests/                  # Test files (TBD)
-├── docs/                   # Additional documentation
-├── .env.example           # Development environment template
-└── README.md              # This file
+├── cmd/sftpt/              # Entry point
+├── internal/
+│   ├── auth/               # SSH authentication
+│   ├── commands/           # CLI subcommands (get, put, list, rm, mkdir, script)
+│   ├── progress/           # Terminal progress bar
+│   └── sftp/               # SFTP client wrapper
+├── test/
+│   ├── downloads/          # Download test destination
+│   └── testdata/           # Test fixtures
+├── docker-compose.test.yml # Test SFTP server
+├── Makefile                # Build, test, lint targets
+└── README.md
 ```
-
-*Note: This is a new project. Implementation language and specific build commands will be determined during initial development.*
