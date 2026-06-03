@@ -146,8 +146,15 @@ func (c *Client) StatFile(path string) (os.FileInfo, error) {
 	return c.sftpClient.Stat(path)
 }
 
+// ListOptions holds options for listing directory contents.
+type ListOptions struct {
+	LongFormat    bool
+	ShowAll       bool
+	HumanReadable bool
+}
+
 // List lists directory contents
-func (c *Client) List(path string, longFormat, showAll bool) ([]string, error) {
+func (c *Client) List(path string, opts ListOptions) ([]string, error) {
 	entries, err := c.sftpClient.ReadDir(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory: %w", err)
@@ -157,23 +164,59 @@ func (c *Client) List(path string, longFormat, showAll bool) ([]string, error) {
 	for _, entry := range entries {
 		name := entry.Name()
 
-		// Skip hidden files unless showAll is true
-		if !showAll && strings.HasPrefix(name, ".") {
+		if !opts.ShowAll && strings.HasPrefix(name, ".") {
 			continue
 		}
 
-		if longFormat {
-			// Format: permissions size date name
-			mode := entry.Mode().String()
-			size := entry.Size()
-			modTime := entry.ModTime().Format("Jan 02 15:04")
-			results = append(results, fmt.Sprintf("%s %8d %s %s", mode, size, modTime, name))
+		if opts.LongFormat {
+			results = append(results, formatEntry(entry, opts))
 		} else {
 			results = append(results, name)
 		}
 	}
 
 	return results, nil
+}
+
+// FormatEntry formats a single file entry for display.
+func FormatEntry(fi os.FileInfo, name string, opts ListOptions) string {
+	return formatEntry(&fileInfoWrapper{fi, name}, opts)
+}
+
+// fileInfoWrapper adapts a name + os.FileInfo to the interface formatEntry needs.
+type fileInfoWrapper struct {
+	os.FileInfo
+	name string
+}
+
+func (w *fileInfoWrapper) Name() string { return w.name }
+
+// formatEntry formats a single file info entry.
+func formatEntry(fi os.FileInfo, opts ListOptions) string {
+	mode := fi.Mode().String()
+	modTime := fi.ModTime().Format("Jan 02 15:04")
+
+	var sizeStr string
+	if opts.HumanReadable {
+		sizeStr = fmt.Sprintf("%8s", formatBytes(fi.Size()))
+	} else {
+		sizeStr = fmt.Sprintf("%8d", fi.Size())
+	}
+
+	return fmt.Sprintf("%s %s %s %s", mode, sizeStr, modTime, fi.Name())
+}
+
+func formatBytes(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d", size)
+	}
+	div, exp := int64(unit), 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
 // Download downloads a file or directory from remote to local

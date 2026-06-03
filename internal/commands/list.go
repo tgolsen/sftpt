@@ -27,8 +27,9 @@ Examples:
 	}
 
 	// Command-specific flags
-	cmd.Flags().BoolP("long", "l", false, "Long format (include permissions, size, date)")
+	cmd.Flags().BoolP("long", "l", false, "Long format (permissions, size, date)")
 	cmd.Flags().BoolP("all", "a", false, "Include hidden files")
+	cmd.Flags().Bool("human-readable", false, "Human-readable sizes (e.g. 1.2K, 4.5M)")
 
 	return cmd
 }
@@ -68,6 +69,13 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 	// Get command options
 	longFormat, _ := cmd.Flags().GetBool("long")
 	showAll, _ := cmd.Flags().GetBool("all")
+	humanReadable, _ := cmd.Flags().GetBool("human-readable")
+
+	listOpts := sftp.ListOptions{
+		LongFormat:    longFormat,
+		ShowAll:       showAll,
+		HumanReadable: humanReadable,
+	}
 
 	// Handle glob patterns
 	if containsGlob(connInfo.Path) {
@@ -83,13 +91,10 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 			if longFormat {
 				fi, statErr := client.StatFile(match)
 				if statErr != nil {
-					PrintOutput(cmd, "%-10s %8s %s %s\n", "????????", "?", "??? ?? ????", match)
+					PrintOutput(cmd, "%s\n", match)
 					continue
 				}
-				mode := fi.Mode().String()
-				size := fi.Size()
-				modTime := fi.ModTime().Format("Jan 02 15:04")
-				PrintOutput(cmd, "%s %8d %s %s\n", mode, size, modTime, match)
+				PrintOutput(cmd, "%s\n", sftp.FormatEntry(fi, match, listOpts))
 			} else {
 				PrintOutput(cmd, "%s\n", match)
 			}
@@ -98,7 +103,7 @@ func runListCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// List directory contents
-	entries, err := client.List(connInfo.Path, longFormat, showAll)
+	entries, err := client.List(connInfo.Path, listOpts)
 	if err != nil {
 		return fmt.Errorf("listing directory: %w", err)
 	}
