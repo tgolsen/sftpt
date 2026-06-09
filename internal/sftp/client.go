@@ -379,7 +379,9 @@ func (c *Client) uploadFile(localPath, remotePath string, options TransferOption
 	}
 
 	// Create remote file
-	remoteFile, err := c.sftpClient.Create(remotePath)
+	// Use OpenFile with write-only flags for better server compatibility
+	// Some SFTP servers don't support O_RDWR (read+write) mode
+	remoteFile, err := c.sftpClient.OpenFile(remotePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
 		return fmt.Errorf("creating remote file: %w", err)
 	}
