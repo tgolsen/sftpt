@@ -203,7 +203,7 @@ sftpt/
 ├── cmd/sftpt/              # Entry point
 ├── internal/
 │   ├── auth/               # SSH authentication
-│   │   ├── commands/           # CLI subcommands (get, put, list, rm, mkdir, script, head)
+│   ├── commands/           # CLI subcommands (get, put, list, rm, mkdir, script, head)
 │   ├── progress/           # Terminal progress bar
 │   └── sftp/               # SFTP client wrapper
 ├── test/
