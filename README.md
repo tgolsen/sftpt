@@ -54,6 +54,10 @@ sftpt mkdir myserver:/remote/newdir/
 sftpt rm myserver:/remote/oldfile.txt
 sftpt rm "myserver:/tmp/*.bak"
 
+# Print first N lines of a remote file (default 10)
+sftpt head myserver:/var/log/app.log
+sftpt head -n 50 myserver:/etc/nginx/nginx.conf
+
 # Batch commands from file or inline
 sftpt script --file deploy.txt
 sftpt script --inline "list myserver:/logs/; get myserver:/logs/app.log ./"
@@ -162,7 +166,7 @@ docker rm -f sftpt-test-server
 
 ## Planned Features
 
-- [x] Basic SFTP operations (get, put, list, mkdir, rm)
+- [x] Basic SFTP operations (get, put, list, mkdir, rm, head)
 - [x] Batch operations and wildcard support
 - [x] Progress indicators for large transfers
 - [ ] Resume interrupted transfers
@@ -199,7 +203,7 @@ sftpt/
 ├── cmd/sftpt/              # Entry point
 ├── internal/
 │   ├── auth/               # SSH authentication
-│   ├── commands/           # CLI subcommands (get, put, list, rm, mkdir, script)
+│   │   ├── commands/           # CLI subcommands (get, put, list, rm, mkdir, script, head)
 │   ├── progress/           # Terminal progress bar
 │   └── sftp/               # SFTP client wrapper
 ├── test/
