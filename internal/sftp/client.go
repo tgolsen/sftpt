@@ -133,6 +133,15 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// OpenReader opens a remote file for reading and returns a ReadCloser.
+func (c *Client) OpenReader(path string) (io.ReadCloser, error) {
+	f, err := c.sftpClient.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening remote file: %w", err)
+	}
+	return f, nil
+}
+
 // Glob returns the names of all files matching pattern on the remote server.
 func (c *Client) Glob(pattern string) ([]string, error) {
 	matches, err := c.sftpClient.Glob(pattern)

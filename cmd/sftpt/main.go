@@ -33,6 +33,7 @@ and supports both interactive and automated authentication.`,
 		commands.NewMkdirCommand(),
 		commands.NewRmCommand(),
 		commands.NewScriptCommand(),
+		commands.NewHeadCommand(),
 	)
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output to stderr")
