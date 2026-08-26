@@ -1,6 +1,12 @@
 # sftpt
 
-A simple command-line SFTP utility for Mac, designed for easy integration with shell scripts.
+The SFTP verb for your shell.
+
+## Why do I need this?
+
+Because moving a file over SFTP shouldn't require an interactive session, a batch-file mini-language, or standing up a config-remote first. `sftpt` gives you plain shell commands — `get`, `put`, `list`, `rm` — that take `host:path` arguments, respect the globs your shell already understands, and return honest exit codes you can branch on in a script.
+
+It's not a do-everything remote filesystem interface. Reach for `rsync` or `rclone` when you need directory sync, delta transfers, or cloud backends. Reach for `sftpt` when you just need to run an SFTP operation from the command line and have it behave exactly the way you'd predict.
 
 ## Quick Start
 
