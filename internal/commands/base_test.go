@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,6 +97,51 @@ func TestParseConnectionString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseConnectionStringSSHConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sshDir := filepath.Join(home, ".ssh")
+	require.NoError(t, os.MkdirAll(sshDir, 0o700))
+	config := `Host sftp.example.com
+    User deploy
+    Port 2200
+
+Host myalias
+    HostName real.example.com
+    User alias-user
+`
+	require.NoError(t, os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0o600))
+
+	t.Run("resolves user for dotted hostname", func(t *testing.T) {
+		result, err := ParseConnectionString("sftp.example.com:/remote/path")
+		require.NoError(t, err)
+		assert.Equal(t, "deploy", result.User)
+		assert.Equal(t, "sftp.example.com", result.Host)
+		assert.Equal(t, "2200", result.Port)
+	})
+
+	t.Run("explicit user overrides ssh config", func(t *testing.T) {
+		result, err := ParseConnectionString("bob@sftp.example.com:/remote/path")
+		require.NoError(t, err)
+		assert.Equal(t, "bob", result.User)
+	})
+
+	t.Run("explicit port overrides ssh config", func(t *testing.T) {
+		result, err := ParseConnectionString("sftp.example.com:2222:/remote/path")
+		require.NoError(t, err)
+		assert.Equal(t, "deploy", result.User)
+		assert.Equal(t, "2222", result.Port)
+	})
+
+	t.Run("alias still resolves hostname and user", func(t *testing.T) {
+		result, err := ParseConnectionString("myalias:/remote/path")
+		require.NoError(t, err)
+		assert.Equal(t, "alias-user", result.User)
+		assert.Equal(t, "real.example.com", result.Host)
+	})
 }
 
 func TestGetConnectionInfo(t *testing.T) {

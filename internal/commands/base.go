@@ -52,17 +52,20 @@ func ParseConnectionString(connStr string) (*ConnectionInfo, error) {
 	}
 
 	// Parse host:port
+	portExplicit := false
 	if colonIndex := strings.LastIndex(userHost, ":"); colonIndex != -1 {
 		host = userHost[:colonIndex]
 		port = userHost[colonIndex+1:]
+		portExplicit = true
 	} else {
 		host = userHost
 		port = "22" // default SSH port
 	}
 
-	// Check if host might be an SSH config alias
-	if user == "" && port == "22" && !strings.Contains(host, ".") {
-		// Looks like it might be an SSH config alias, try to resolve it
+	// Resolve against ~/.ssh/config when the user wasn't given explicitly.
+	// This applies to real hostnames as well as aliases; anything the user
+	// stated on the command line (user, port) takes precedence over config.
+	if user == "" {
 		if sshConfig := tryResolveSSHConfig(host); sshConfig != nil {
 			if sshConfig.User != "" {
 				user = sshConfig.User
@@ -70,7 +73,7 @@ func ParseConnectionString(connStr string) (*ConnectionInfo, error) {
 			if sshConfig.HostName != "" {
 				host = sshConfig.HostName
 			}
-			if sshConfig.Port != "" {
+			if sshConfig.Port != "" && !portExplicit {
 				port = sshConfig.Port
 			}
 		}
